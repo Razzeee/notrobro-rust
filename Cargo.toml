@@ -1,0 +1,8 @@
+[package]
+name = "notrobro"
+version = "0.1.0"
+authors = ["razze"]
+
+[dependencies]
+clap = "2.32.0"
+walkdir = "2"
