@@ -51,38 +51,44 @@ fn main() {
 
         WalkDir::new(path_string)
             .into_iter()
-            .filter_map(|e| e.ok())
-            .for_each(|e| {
-                do_something(e.path(), force);
+            .filter_map(| e | e.ok() )
+            .filter( | e | {
+
+                let ext = e.path().extension().and_then( | s | s.to_str() );
+
+                if let Some(ext) = ext {
+                    match ext {
+                        "mp4" | "mkv" | "avi" | "mov" | "wmv" => {
+                            println!("{}", path.display());
+                            true
+                        }
+                        _ => false
+                    }
+                }
+                else { false }
+
+            } )
+            .for_each(| e | {
+                get_edl(e.path());
             });
     } else {
         println!("Path doesn't seem to exist. Did you mistype?");
     }
 }
 
-fn do_something(path: &Path, force: bool) -> Option<()> {
-    match path.extension()?.to_str()? {
-        "mp4" | "mkv" | "avi" | "mov" | "wmv" => {
-            println!("{}", path.display());
+fn get_edl(path: &Path) -> Option<PathBuf> {
 
-            if path.file_stem().is_some() {
-                let mut edl_path: PathBuf = path.into();
-                edl_path.set_extension("edl");
+    if path.file_stem().is_some() {
+        let mut edl_path: PathBuf = path.into();
+        edl_path.set_extension("edl");
 
-                if edl_path.exists() {
-                    println!("Edl does exist {}", edl_path.display());
-
-                    if force {
-                        // Proceed
-                    }
-                } else {
-                    println!("Edl does not exist {}", edl_path.display());
-                }
-            }
+        if edl_path.exists() {
+            println!("Edl does exist {}", edl_path.display());
+            Some(edl_path)
+        } else {
+            println!("Edl does not exist {}", edl_path.display());
+            None
         }
-
-        _ => (),
     }
-
-    Some(())
+    else { None }
 }
