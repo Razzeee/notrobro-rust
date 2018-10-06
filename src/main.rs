@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 extern crate walkdir;
 use walkdir::WalkDir;
@@ -89,7 +90,7 @@ fn main() {
                 .video_files
                 .into_iter()
                 .filter(|video| force || !video.has_edl())
-                .for_each(|video| println!("creating edl for {}", video.display()))
+                .for_each(|video| call_ffmpeg(&video))
         }
 
     // 2. compare edls ???
@@ -98,6 +99,45 @@ fn main() {
     } else {
         println!("Path doesn't seem to exist. Did you mistype?");
     }
+}
+
+fn call_ffmpeg(path: &PathBuf) {
+    let file_stem: &str = path.file_stem().unwrap().to_str().unwrap(); 
+    let parent: &str = path.parent().unwrap().to_str().unwrap();
+    let attach: &str = "\\%04d.jpg";
+
+    let concat_string = parent.to_owned() + attach;
+
+    let mut command = 
+            Command::new("ffmpeg");
+
+    command.arg("-i")
+                    .arg(path.to_str().unwrap())
+                    .arg("-ss")
+                    .arg("0")
+                    .arg("-to")
+                    .arg("360")
+                    .arg("-vf")
+                    .arg("select='gt(scene,0.35)',showinfo")
+                    .arg("-vsync")
+                    .arg("vfr")
+                    .arg(concat_string);
+                    // .arg(">scenes") // redirect it
+                    // .arg("2>&1"); // get error outputs
+
+    let output = 
+            command
+                    .output()
+                    .expect("failed to execute process");
+    
+    // Todo - remove these and figure out how to print the created command
+    println!("command: {:#?}", command);
+    println!("status: {:#?}", output);
+    // println!("status: {}", output.status);
+    // println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+    // println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    // ffmpeg -i \'./onepiece1.avi\' -ss 0 -to 360 -vf  "select=\'gt(scene,0.35)\',showinfo" -vsync vfr "./onepiece1/onepiece1"%04d.jpg>scenes 2>&1
 }
 
 fn get_edl(path: &Path) -> Option<PathBuf> {
