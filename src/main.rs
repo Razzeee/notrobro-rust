@@ -1,10 +1,20 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::fs::{self, DirEntry};
 
 extern crate walkdir;
 use walkdir::WalkDir;
 extern crate clap;
 use clap::{App, Arg};
+extern crate tempfile;
+use tempfile::tempdir;
+extern crate pihash;
+use pihash::PIHash;
+
+#[macro_use] 
+extern crate lazy_static;
+extern crate regex;
+use regex::Regex;
 
 struct Folder {
     folder_path: PathBuf,
@@ -102,11 +112,10 @@ fn main() {
 }
 
 fn call_ffmpeg(path: &PathBuf) {
-    let file_stem: &str = path.file_stem().unwrap().to_str().unwrap(); 
-    let parent: &str = path.parent().unwrap().to_str().unwrap();
-    let attach: &str = "\\%04d.jpg";
 
-    let concat_string = parent.to_owned() + attach;
+    let dir = tempdir().unwrap();
+    let file_stem: &str = path.file_stem().unwrap().to_str().unwrap(); 
+    let concat_string: &Path = &dir.path().join("%04d.jpg");
 
     let mut command = 
             Command::new("ffmpeg");
@@ -122,22 +131,41 @@ fn call_ffmpeg(path: &PathBuf) {
                     .arg("-vsync")
                     .arg("vfr")
                     .arg(concat_string);
-                    // .arg(">scenes") // redirect it
-                    // .arg("2>&1"); // get error outputs
 
     let output = 
             command
                     .output()
                     .expect("failed to execute process");
-    
-    // Todo - remove these and figure out how to print the created command
-    println!("command: {:#?}", command);
-    println!("status: {:#?}", output);
-    // println!("status: {}", output.status);
-    // println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-    // println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
 
-    // ffmpeg -i \'./onepiece1.avi\' -ss 0 -to 360 -vf  "select=\'gt(scene,0.35)\',showinfo" -vsync vfr "./onepiece1/onepiece1"%04d.jpg>scenes 2>&1
+    // println!("command: {:#?}", command);
+    // println!("status: {:#?}", output);
+    find_timings(&format!("{:#?}", &output));
+
+    println!("{:?}",&dir.path());
+    for path in fs::read_dir(&dir.path()).unwrap() {
+        lazy_static! {
+            static ref PIHASH: PIHash<'static> = PIHash::new(None);
+        }
+        let unwraped_path = &path.unwrap().path();
+        let phash = PIHASH.get_phash(unwraped_path);
+        // Todo - Add these tp the struct list
+        println!("Name: {:#?}", unwraped_path);
+        println!("Phash: {}", phash);
+        // Todo - compare hashes with get_hamming_distance
+    }
+
+    dir.close().unwrap();
+}
+
+fn find_timings(output: &str) {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r" pts_time:(\d+\.\d+) ").unwrap();
+    }
+    for caps in RE.captures_iter(output) {
+    // Todo - put these into a struct list
+    println!("Timing: {:?}",
+             &caps[1]);
+    }
 }
 
 fn get_edl(path: &Path) -> Option<PathBuf> {
