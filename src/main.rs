@@ -38,9 +38,16 @@ struct SceneChange {
 }
 
 #[derive(PartialEq, Eq)]
+#[derive(Debug)]
 enum IntroOutro {
     Intro,
     Outro,
+}
+
+impl std::fmt::Display for IntroOutro {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 fn main() {
@@ -191,7 +198,7 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
             .arg(concat_string);
     }
 
-    println!("Start analyzing {} ...", path.display());
+    println!("Start analyzing {} {} ...", intro_outro, path.display());
     let output = command.output().expect("failed to execute process");
     //println!("command: {:#?}", command);
     // println!("output: {:#?}", output);
