@@ -65,51 +65,19 @@ fn main() {
                 .help("Process all videos in the directory (default=False)"),
         ).get_matches();
 
-    let path_string = matches.value_of("PATH").unwrap(); // Todo remove trailing backslash from path
+    let path = Path::new(matches.value_of("PATH").unwrap()); // Todo remove trailing backslash from path
     let threshold = matches.value_of("THRESHOLD").unwrap_or("0.35");
     let force = matches.is_present("FORCE");
 
-    println!("Value for path: {}", path_string);
-
+    println!("Value for path: {}", path.display());
     println!("Using threshold: {}", threshold);
-
     println!("Using force: {}", force); // Todo use this
-
-    let path = Path::new(path_string);
-    let mut folder_count = 0;
 
     if path.exists() {
         println!("Path exists");
 
         // find all folders with two or more video files
-        let folders: Vec<Folder> = WalkDir::new(path_string)
-            .into_iter()
-            .filter_map(|result| result.ok())
-            .filter(|entry| entry.file_type().is_dir())
-            .map(|folder| {
-                // find all videos in the folder
-                folder_count += 1;
-
-                let videos: Vec<PathBuf> = WalkDir::new(folder.path())
-                    .max_depth(1)
-                    .into_iter()
-                    .filter_map(|result| result.ok())
-                    .filter(|entry| entry.is_video())
-                    .map(|entry| entry.path().into())
-                    .collect();
-
-                Folder {
-                    folder_path: folder.path().into(),
-                    video_files: videos,
-                }
-            }).filter(|folder| folder.video_files.len() >= 2)
-            .collect();
-
-        println!(
-            "{} folders found, {} folders searched",
-            folders.len(),
-            folder_count
-        );
+        let folders: Vec<Folder> = get_folders_with_videos(path);
 
         // 1. create edl-files
         let hashed_videos: Vec<Vec<Video>> = folders
@@ -146,6 +114,43 @@ fn main() {
     } else {
         println!("Path {:#?} doesn't seem to exist. Did you mistype?", path);
     }
+}
+
+fn get_folders_with_videos(path: &Path) -> Vec<Folder> {
+
+    let mut folder_count = 0;
+
+    // find all folders with two or more video files
+    let folders: Vec<Folder> = WalkDir::new(path)
+        .into_iter()
+        .filter_map(|result| result.ok())
+        .filter(|entry| entry.file_type().is_dir())
+        .map(|folder| {
+            // find all videos in the folder
+            folder_count += 1;
+
+            let videos: Vec<PathBuf> = WalkDir::new(folder.path())
+                .max_depth(1)
+                .into_iter()
+                .filter_map(|result| result.ok())
+                .filter(|entry| entry.is_video())
+                .map(|entry| entry.path().into() )
+                .collect();
+
+            Folder {
+                folder_path: folder.path().into(),
+                video_files: videos,
+            }
+        }).filter(|folder| folder.video_files.len() >= 2)
+        .collect();
+
+    println!(
+        "{} folders found, {} folders searched",
+        folders.len(),
+        folder_count
+    );
+
+    folders
 }
 
 fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Vec<SceneChange> {
