@@ -16,6 +16,10 @@ extern crate lazy_static;
 extern crate regex;
 use regex::Regex;
 
+extern crate rayon;
+use rayon::prelude::*;
+
+#[derive(Debug)]
 struct Folder {
     folder_path: PathBuf,
     video_files: Vec<PathBuf>,
@@ -79,12 +83,14 @@ fn main() {
         // find all folders with two or more video files
         let folders: Vec<Folder> = get_folders_with_videos(path);
 
+        //println!("{:#?}", folders);
+
         // 1. create edl-files
         let hashed_videos: Vec<Vec<Video>> = folders
             .into_iter()
             .map(|f| {
                 f.video_files
-                    .into_iter()
+                    .par_iter()
                     .filter(|video| force || !video.has_edl())
                     .map(|video| call_ffmpeg(&video, threshold))
                     .collect()
@@ -185,8 +191,9 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
             .arg(concat_string);
     }
 
+    println!("Start analyzing {} ...", path.display());
     let output = command.output().expect("failed to execute process");
-    println!("command: {:#?}", command);
+    //println!("command: {:#?}", command);
     // println!("output: {:#?}", output);
     let mut scene_changes = find_timings(&format!("{:#?}", &output));
 
@@ -200,7 +207,7 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
         scene_changes[i].phash = PIHASH.get_phash(unwraped_path);
     }
 
-    println!("Done");
+    println!("Finished analyzing {} ...", path.display());
 
     dir.close().unwrap();
 
