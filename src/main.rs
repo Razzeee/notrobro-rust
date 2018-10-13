@@ -16,6 +16,10 @@ extern crate lazy_static;
 extern crate regex;
 use regex::Regex;
 
+extern crate rayon;
+use rayon::prelude::*;
+
+#[derive(Debug)]
 struct Folder {
     folder_path: PathBuf,
     video_files: Vec<PathBuf>,
@@ -65,79 +69,94 @@ fn main() {
                 .help("Process all videos in the directory (default=False)"),
         ).get_matches();
 
-    let path_string = matches.value_of("PATH").unwrap(); // Todo remove trailing backslash from path
+    let path = Path::new(matches.value_of("PATH").unwrap()); // Todo remove trailing backslash from path
     let threshold = matches.value_of("THRESHOLD").unwrap_or("0.35");
     let force = matches.is_present("FORCE");
 
-    println!("Value for path: {}", path_string);
-
+    println!("Value for path: {}", path.display());
     println!("Using threshold: {}", threshold);
-
     println!("Using force: {}", force); // Todo use this
-
-    let path = Path::new(path_string);
-    let mut folder_count = 0;
 
     if path.exists() {
         println!("Path exists");
 
         // find all folders with two or more video files
-        let folders: Vec<Folder> = WalkDir::new(path_string)
-            .into_iter()
-            .filter_map(|result| result.ok())
-            .filter(|entry| entry.file_type().is_dir())
-            .map(|folder| {
-                // find all videos in the folder
-                folder_count += 1;
+        let folders: Vec<Folder> = get_folders_with_videos(path);
 
-                let videos: Vec<PathBuf> = WalkDir::new(folder.path())
-                    .max_depth(1)
-                    .into_iter()
-                    .filter_map(|result| result.ok())
-                    .filter(|entry| entry.is_video())
-                    .map(|entry| entry.path().into())
-                    .collect();
-
-                Folder {
-                    folder_path: folder.path().into(),
-                    video_files: videos,
-                }
-            }).filter(|folder| folder.video_files.len() >= 2)
-            .collect();
-
-        println!(
-            "{} folders found, {} folders searched",
-            folders.len(),
-            folder_count
-        );
+        //println!("{:#?}", folders);
 
         // 1. create edl-files
-        let mut hashed_videos = Vec::new();
-        for folder in folders {
-            folder
-                .video_files
-                .into_iter()
-                .filter(|video| force || !video.has_edl())
-                .for_each(|video| hashed_videos.push(call_ffmpeg(&video, threshold)))
-        }
+        let hashed_videos: Vec<Vec<Video>> = folders
+            .into_iter()
+            .map(|f| {
+                f.video_files
+                    .par_iter()
+                    .filter(|video| force || !video.has_edl())
+                    .map(|video| call_ffmpeg(&video, threshold))
+                    .collect()
+            }).collect();
 
-    // 2. compare edls ???
-    for video in hashed_videos {
-        println!("{:#?}", video.path);
+        // 2. compare edls ???
+        for folder in hashed_videos {
+            for video in folder {
+                println!("{:#?}", video.path);
 
-        for intro in video.intro {
-            println!("{:#?} {} {}", intro.temp_picture_path, intro.time, intro.phash);
+                for intro in video.intro {
+                    println!(
+                        "{:#?} {} {}",
+                        intro.temp_picture_path, intro.time, intro.phash
+                    );
+                }
+                for outro in video.outro {
+                    println!(
+                        "{:#?} {} {}",
+                        outro.temp_picture_path, outro.time, outro.phash
+                    );
+                }
+            }
         }
-        for outro in video.outro {
-            println!("{:#?} {} {}", outro.temp_picture_path, outro.time, outro.phash);
-        }
-        
-    }
-    println!("Done processing");
+        println!("Done processing");
     // 3. Profit!
     } else {
         println!("Path {:#?} doesn't seem to exist. Did you mistype?", path);
     }
+}
+
+fn get_folders_with_videos(path: &Path) -> Vec<Folder> {
+
+    let mut folder_count = 0;
+
+    // find all folders with two or more video files
+    let folders: Vec<Folder> = WalkDir::new(path)
+        .into_iter()
+        .filter_map(|result| result.ok())
+        .filter(|entry| entry.file_type().is_dir())
+        .map(|folder| {
+            // find all videos in the folder
+            folder_count += 1;
+
+            let videos: Vec<PathBuf> = WalkDir::new(folder.path())
+                .max_depth(1)
+                .into_iter()
+                .filter_map(|result| result.ok())
+                .filter(|entry| entry.is_video())
+                .map(|entry| entry.path().into() )
+                .collect();
+
+            Folder {
+                folder_path: folder.path().into(),
+                video_files: videos,
+            }
+        }).filter(|folder| folder.video_files.len() >= 2)
+        .collect();
+
+    println!(
+        "{} folders found, {} folders searched",
+        folders.len(),
+        folder_count
+    );
+
+    folders
 }
 
 fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Vec<SceneChange> {
@@ -172,22 +191,23 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
             .arg(concat_string);
     }
 
+    println!("Start analyzing {} ...", path.display());
     let output = command.output().expect("failed to execute process");
-    println!("command: {:#?}", command);
+    //println!("command: {:#?}", command);
     // println!("output: {:#?}", output);
     let mut scene_changes = find_timings(&format!("{:#?}", &output));
 
-    for (i, path) in fs::read_dir(&dir.path()).unwrap().enumerate() {
-        lazy_static! {
-            static ref PIHASH: PIHash<'static> = PIHash::new(None);
-        }
+    lazy_static! {
+        static ref PIHASH: PIHash<'static> = PIHash::new(None);
+    }
 
+    for (i, path) in fs::read_dir(&dir.path()).unwrap().enumerate() {
         let unwraped_path = &path.unwrap().path();
         scene_changes[i].temp_picture_path = unwraped_path.to_owned();
         scene_changes[i].phash = PIHASH.get_phash(unwraped_path);
     }
 
-    println!("Done");
+    println!("Finished analyzing {} ...", path.display());
 
     dir.close().unwrap();
 
@@ -217,23 +237,6 @@ fn find_timings(output: &str) -> Vec<SceneChange> {
         });
     }
     vec
-}
-
-fn get_edl(path: &Path) -> Option<PathBuf> {
-    if path.file_stem().is_some() {
-        let mut edl_path: PathBuf = path.into();
-        edl_path.set_extension("edl");
-
-        if edl_path.exists() {
-            println!("Edl does exist {}", edl_path.display());
-            Some(edl_path)
-        } else {
-            println!("Edl does not exist {}", edl_path.display());
-            None
-        }
-    } else {
-        None
-    }
 }
 
 trait Notrobro {
