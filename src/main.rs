@@ -219,23 +219,6 @@ fn find_timings(output: &str) -> Vec<SceneChange> {
     vec
 }
 
-fn get_edl(path: &Path) -> Option<PathBuf> {
-    if path.file_stem().is_some() {
-        let mut edl_path: PathBuf = path.into();
-        edl_path.set_extension("edl");
-
-        if edl_path.exists() {
-            println!("Edl does exist {}", edl_path.display());
-            Some(edl_path)
-        } else {
-            println!("Edl does not exist {}", edl_path.display());
-            None
-        }
-    } else {
-        None
-    }
-}
-
 trait Notrobro {
     fn is_video(&self) -> bool;
     fn has_edl(&self) -> bool;
