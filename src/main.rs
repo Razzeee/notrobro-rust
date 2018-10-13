@@ -112,28 +112,36 @@ fn main() {
         );
 
         // 1. create edl-files
-        let mut hashed_videos = Vec::new();
-        for folder in folders {
-            folder
-                .video_files
-                .into_iter()
-                .filter(|video| force || !video.has_edl())
-                .for_each(|video| hashed_videos.push(call_ffmpeg(&video, threshold)))
-        }
+        let hashed_videos: Vec<Vec<Video>> = folders
+            .into_iter()
+            .map(|f| {
+                f.video_files
+                    .into_iter()
+                    .filter(|video| force || !video.has_edl())
+                    .map(|video| call_ffmpeg(&video, threshold))
+                    .collect()
+            }).collect();
 
-    // 2. compare edls ???
-    for video in hashed_videos {
-        println!("{:#?}", video.path);
+        // 2. compare edls ???
+        for folder in hashed_videos {
+            for video in folder {
+                println!("{:#?}", video.path);
 
-        for intro in video.intro {
-            println!("{:#?} {} {}", intro.temp_picture_path, intro.time, intro.phash);
+                for intro in video.intro {
+                    println!(
+                        "{:#?} {} {}",
+                        intro.temp_picture_path, intro.time, intro.phash
+                    );
+                }
+                for outro in video.outro {
+                    println!(
+                        "{:#?} {} {}",
+                        outro.temp_picture_path, outro.time, outro.phash
+                    );
+                }
+            }
         }
-        for outro in video.outro {
-            println!("{:#?} {} {}", outro.temp_picture_path, outro.time, outro.phash);
-        }
-        
-    }
-    println!("Done processing");
+        println!("Done processing");
     // 3. Profit!
     } else {
         println!("Path {:#?} doesn't seem to exist. Did you mistype?", path);
@@ -177,11 +185,11 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
     // println!("output: {:#?}", output);
     let mut scene_changes = find_timings(&format!("{:#?}", &output));
 
-    for (i, path) in fs::read_dir(&dir.path()).unwrap().enumerate() {
-        lazy_static! {
-            static ref PIHASH: PIHash<'static> = PIHash::new(None);
-        }
+    lazy_static! {
+        static ref PIHASH: PIHash<'static> = PIHash::new(None);
+    }
 
+    for (i, path) in fs::read_dir(&dir.path()).unwrap().enumerate() {
         let unwraped_path = &path.unwrap().path();
         scene_changes[i].temp_picture_path = unwraped_path.to_owned();
         scene_changes[i].phash = PIHASH.get_phash(unwraped_path);
