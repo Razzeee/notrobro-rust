@@ -50,9 +50,16 @@ struct SceneChange {
 }
 
 #[derive(PartialEq, Eq)]
+#[derive(Debug)]
 enum IntroOutro {
     Intro,
     Outro,
+}
+
+impl std::fmt::Display for IntroOutro {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 fn main() {
@@ -237,7 +244,7 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
 }
 
 fn call_ffmpeg(path: &PathBuf, threshold: &str) -> Video {
-    info!("Start analyzing {} ...", path.display());
+    info!("Start analyzing {} {} ...", intro_outro, path.display());
     let vid = Video {
         path: path.to_path_buf(),
         intro: create_hashes(path, threshold, IntroOutro::Intro),
