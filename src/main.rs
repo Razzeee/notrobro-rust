@@ -4,20 +4,32 @@ use std::process::Command;
 
 extern crate walkdir;
 use walkdir::WalkDir;
+
+// command line agruments parser
 extern crate clap;
 use clap::{App, Arg};
+
 extern crate tempfile;
 use tempfile::tempdir;
 extern crate pihash;
 use pihash::PIHash;
 
+// static initialized at runtime (do we realy need them?)
 #[macro_use]
 extern crate lazy_static;
+
+// regular expressions
 extern crate regex;
 use regex::Regex;
 
+// parallelism
 extern crate rayon;
 use rayon::prelude::*;
+
+// logging
+extern crate log;
+use log::*;
+extern crate simplelog;
 
 #[derive(Debug)]
 struct Folder {
@@ -67,23 +79,36 @@ fn main() {
                 .short("f")
                 .long("force")
                 .help("Process all videos in the directory (default=False)"),
+        ).arg(
+            Arg::with_name("VERBOSITY")
+                .short("v")
+                .help("Get more verbose output")
+                .multiple(true),
         ).get_matches();
 
     let path = Path::new(matches.value_of("PATH").unwrap()); // Todo remove trailing backslash from path
     let threshold = matches.value_of("THRESHOLD").unwrap_or("0.35");
     let force = matches.is_present("FORCE");
 
-    println!("Value for path: {}", path.display());
-    println!("Using threshold: {}", threshold);
-    println!("Using force: {}", force); // Todo use this
+    debug!("Value for path: {}", path.display());
+    debug!("Using threshold: {}", threshold);
+    debug!("Using force: {}", force); // Todo use this
+
+    let log_level = match matches.occurrences_of("VERBOSITY") {
+        0 => LevelFilter::Error,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        _ => LevelFilter::Debug,
+    };
+
+    let _ = simplelog::SimpleLogger::init(log_level, simplelog::Config::default());
 
     if path.exists() {
-        println!("Path exists");
-
+        println!("Start processing");
         // find all folders with two or more video files
         let folders: Vec<Folder> = get_folders_with_videos(path);
 
-        //println!("{:#?}", folders);
+        info!("{:#?}", folders);
 
         // 1. create edl-files
         let hashed_videos: Vec<Vec<Video>> = folders
@@ -92,7 +117,7 @@ fn main() {
                 f.video_files
                     .par_iter()
                     .filter(|video| force || !video.has_edl())
-                    .map(|video| call_ffmpeg(&video, threshold))
+                    .map(|video| call_ffmpeg(&video, threshold) )
                     .collect()
             }).collect();
 
@@ -118,7 +143,7 @@ fn main() {
         println!("Done processing");
     // 3. Profit!
     } else {
-        println!("Path {:#?} doesn't seem to exist. Did you mistype?", path);
+        warn!("Path {:#?} doesn't seem to exist. Did you mistype?", path);
     }
 }
 
@@ -151,9 +176,9 @@ fn get_folders_with_videos(path: &Path) -> Vec<Folder> {
         .collect();
 
     println!(
-        "{} folders found, {} folders searched",
+        "{} folders searched, {} folders with videos found",
+        folder_count,
         folders.len(),
-        folder_count
     );
 
     folders
@@ -191,10 +216,9 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
             .arg(concat_string);
     }
 
-    println!("Start analyzing {} ...", path.display());
     let output = command.output().expect("failed to execute process");
-    //println!("command: {:#?}", command);
-    // println!("output: {:#?}", output);
+    debug!("command: {:#?}", command);
+    debug!("output: {:#?}", output);
     let mut scene_changes = find_timings(&format!("{:#?}", &output));
 
     lazy_static! {
@@ -207,19 +231,20 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
         scene_changes[i].phash = PIHASH.get_phash(unwraped_path);
     }
 
-    println!("Finished analyzing {} ...", path.display());
-
     dir.close().unwrap();
 
     scene_changes
 }
 
 fn call_ffmpeg(path: &PathBuf, threshold: &str) -> Video {
-    Video {
+    info!("Start analyzing {} ...", path.display());
+    let vid = Video {
         path: path.to_path_buf(),
         intro: create_hashes(path, threshold, IntroOutro::Intro),
         outro: create_hashes(path, threshold, IntroOutro::Outro),
-    }
+    };
+    info!("Finished analyzing {} ...", path.display());
+    vid
 }
 
 // Todo - compare hashes with get_hamming_distance
