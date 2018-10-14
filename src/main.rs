@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -11,8 +10,12 @@ use clap::{App, Arg};
 
 extern crate tempfile;
 use tempfile::tempdir;
+
+// picture hashing
 extern crate pihash;
-use pihash::PIHash;
+lazy_static! {
+    static ref PIHASH: pihash::PIHash<'static> = pihash::PIHash::new(None);
+}
 
 // static initialized at runtime (do we realy need them?)
 #[macro_use]
@@ -43,6 +46,7 @@ struct Video {
     outro: Vec<SceneChange>,
 }
 
+#[derive(Debug)]
 struct SceneChange {
     temp_picture_path: PathBuf,
     phash: u64,
@@ -124,7 +128,7 @@ fn main() {
                 f.video_files
                     .par_iter()
                     .filter(|video| force || !video.has_edl())
-                    .map(|video| call_ffmpeg(&video, threshold) )
+                    .map(|video| call_ffmpeg(&video, threshold))
                     .collect()
             }).collect();
 
@@ -155,7 +159,6 @@ fn main() {
 }
 
 fn get_folders_with_videos(path: &Path) -> Vec<Folder> {
-
     let mut folder_count = 0;
 
     // find all folders with two or more video files
@@ -172,7 +175,7 @@ fn get_folders_with_videos(path: &Path) -> Vec<Folder> {
                 .into_iter()
                 .filter_map(|result| result.ok())
                 .filter(|entry| entry.is_video())
-                .map(|entry| entry.path().into() )
+                .map(|entry| entry.path().into())
                 .collect();
 
             Folder {
@@ -224,19 +227,24 @@ fn create_hashes(path: &PathBuf, threshold: &str, intro_outro: IntroOutro) -> Ve
     }
 
     let output = command.output().expect("failed to execute process");
-    debug!("command: {:#?}", command);
-    debug!("output: {:#?}", output);
+    //debug!("command: {:#?}", command);
+    //debug!("output: {:#?}", output);
     let mut scene_changes = find_timings(&format!("{:#?}", &output));
 
-    lazy_static! {
-        static ref PIHASH: PIHash<'static> = PIHash::new(None);
+    scene_changes.iter().for_each(|sc| debug!("{:#?}", sc));
+
+    for (i, scene_change) in scene_changes.iter_mut().enumerate() {
+        let pic_path = &dir.path().join(format!("{:04}.jpg", i + 1));
+
+        if pic_path.exists() {
+            scene_change.temp_picture_path = pic_path.to_owned();
+            scene_change.phash = PIHASH.get_phash(pic_path);
+        } else {
+            warn!("Screenshot '{}' does not exist", pic_path.display());
+        }
     }
 
-    for (i, path) in fs::read_dir(&dir.path()).unwrap().enumerate() {
-        let unwraped_path = &path.unwrap().path();
-        scene_changes[i].temp_picture_path = unwraped_path.to_owned();
-        scene_changes[i].phash = PIHASH.get_phash(unwraped_path);
-    }
+    scene_changes.iter().for_each(|sc| debug!("{:#?}", sc));
 
     dir.close().unwrap();
 
@@ -255,7 +263,6 @@ fn call_ffmpeg(path: &PathBuf, threshold: &str) -> Video {
 }
 
 // Todo - compare hashes with get_hamming_distance
-
 fn find_timings(output: &str) -> Vec<SceneChange> {
     lazy_static! {
         static ref RE: Regex = Regex::new(r" pts_time:(\d+\.\d+) ").unwrap();
